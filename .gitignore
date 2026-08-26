@@ -32,3 +32,6 @@ src/discrete_optimization.egg-info/*
 
 # Output files from using the library Optuna
 optuna-journal.log
+
+# Solver output files
+examples/rcalbp_l/*.pkl

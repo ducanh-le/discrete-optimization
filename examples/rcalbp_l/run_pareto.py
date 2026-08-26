@@ -22,8 +22,8 @@ from discrete_optimization.generic_tools.pareto_tools import CpsatParetoSolver
 logging.basicConfig(level=logging.INFO)
 
 
-def run_pareto(instance=Path("..") / ".." / ".." / "these-ONERA" / "data" / "instances" / "didactic" / "6_2_6_12.json"):
-    problem = parse_rcalbpl_json(instance)
+def run_pareto(instance="6_2_6_12.json"):
+    problem = parse_rcalbpl_json(Path("..") / ".." / ".." / "these-ONERA" / "data" / "instances" / "didactic" / instance)
     # problem.nb_periods = 5
     # problem.periods = range(problem.nb_periods)
     from discrete_optimization.generic_tools.sequential_metasolver import (
@@ -91,7 +91,7 @@ def run_pareto(instance=Path("..") / ".." / ".." / "these-ONERA" / "data" / "ins
     plt.grid(True)
     plt.legend()
     print(problem.evaluate(sol), problem.satisfy(sol))
-    # plt.show()
+    plt.show()
     # fig, slider = plot_rcalbpl_dashboard(problem, sol)
 
 
