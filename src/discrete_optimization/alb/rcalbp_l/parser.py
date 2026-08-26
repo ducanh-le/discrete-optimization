@@ -32,7 +32,7 @@ def get_data_available(
     return [os.path.abspath(os.path.join(data_folder, f)) for f in files]
 
 
-def parse_rcalbpl_json(file_path: str) -> RCALBPLProblem:
+def parse_rcalbpl_json(file_path) -> RCALBPLProblem:
     """
     Parses the RC-ALBP/L JSON data and constructs the Problem instance.
     """

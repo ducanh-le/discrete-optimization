@@ -3,6 +3,9 @@ import pickle
 import time
 
 from matplotlib import pyplot as plt
+from pathlib import Path
+import faulthandler
+faulthandler.enable()
 
 from discrete_optimization.alb.rcalbp_l import get_data_available, parse_rcalbpl_json
 from discrete_optimization.alb.rcalbp_l.solvers import (
@@ -19,7 +22,7 @@ from discrete_optimization.generic_tools.pareto_tools import CpsatParetoSolver
 logging.basicConfig(level=logging.INFO)
 
 
-def run_pareto(instance="187_2_26_2880.json"):
+def run_pareto(instance=Path("..") / ".." / ".." / "these-ONERA" / "data" / "instances" / "didactic" / "6_2_6_12.json"):
     problem = parse_rcalbpl_json(instance)
     # problem.nb_periods = 5
     # problem.periods = range(problem.nb_periods)
@@ -29,12 +32,12 @@ def run_pareto(instance="187_2_26_2880.json"):
     )
 
     p = ParametersCp.default_cpsat()
-    p.nb_process = 8
+    p.nb_process = 2
     brick1 = SubBrick(
         BackwardSequentialRCALBPLSolver,
         kwargs=dict(
             future_chunk_size=1,
-            phase2_chunk_size=5,
+            phase2_chunk_size=2,
             time_limit_phase1=200,
             time_limit_phase2=50,
             use_sgs_warm_start=True,
