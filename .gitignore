@@ -28,6 +28,7 @@ src/discrete_optimization.egg-info/requires.txt
 src/discrete_optimization.egg-info/top_level.txt
 src/discrete_optimization.egg-info/SOURCES.txt
 src/discrete_optimization.egg-info/PKG-INFO
+src/discrete_optimization.egg-info/*
 
 # Output files from using the library Optuna
 optuna-journal.log
