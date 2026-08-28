@@ -9,6 +9,8 @@ import sys
 import ast
 import faulthandler
 faulthandler.enable()
+import os
+from contextlib import contextmanager
 
 from discrete_optimization.alb.rcalbp_l import get_data_available, parse_rcalbpl_json
 from discrete_optimization.alb.rcalbp_l.solvers import (
@@ -23,6 +25,37 @@ from discrete_optimization.generic_tools.cp_tools import ParametersCp
 from discrete_optimization.generic_tools.pareto_tools import CpsatParetoSolver
 
 logging.basicConfig(level=logging.INFO)
+
+
+@contextmanager
+def redirect_stdout_all(target_file):
+    """Chuyển hướng cả stdout của Python lẫn C/C++ extensions vào target_file."""
+    # Đẩy sạch dữ liệu đệm (buffer) trước khi chuyển hướng
+    sys.stdout.flush()
+
+    # Lấy file descriptor gốc (FD 1) và FD của file đích
+    c_stdout_fd = 1  # Standard Output File Descriptor
+    target_fd = target_file.fileno()
+
+    # Sao lưu lại File Descriptor 1 gốc để khôi phục sau này
+    saved_fd = os.dup(c_stdout_fd)
+
+    # Chuyển hướng FD 1 sang file đích
+    os.dup2(target_fd, c_stdout_fd)
+
+    # Đồng bộ cả sys.stdout của Python
+    old_sys_stdout = sys.stdout
+    sys.stdout = target_file
+
+    try:
+        yield
+    finally:
+        # Xả sạch buffer trước khi trả lại trạng thái cũ
+        sys.stdout.flush()
+        # Khôi phục lại luồng terminal gốc
+        os.dup2(saved_fd, c_stdout_fd)
+        os.close(saved_fd)
+        sys.stdout = old_sys_stdout
 
 
 def run_pareto(instance_path, future_chunk_size=1, phase2_chunk_size=2, time_limit_phase1=300, time_limit_phase2=60, use_sgs_warm_start=True, time_limit=6300):
@@ -300,7 +333,6 @@ if __name__ == "__main__":
     print(f"Running meta_solvers on {inst_path.name}")
     print("...")
     with open(log_path, 'w') as logfile:
-        sys.stdout = logfile
-        run_pareto(inst_path, future_chunk_size, phase2_chunk_size, time_limit_phase1, time_limit_phase2, use_sgs_warm_start, time_limit)
-        sys.stdout = sys.__stdout__
+        with redirect_stdout_all(logfile):
+            run_pareto(inst_path, future_chunk_size, phase2_chunk_size, time_limit_phase1, time_limit_phase2, use_sgs_warm_start, time_limit)
     print(f"Finished meta_solvers on {inst_path.name}")
