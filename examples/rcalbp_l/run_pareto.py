@@ -280,7 +280,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
     (inst_name, inst_reduced, future_chunk_size, phase2_chunk_size, time_limit_phase1, time_limit_phase2, use_sgs_warm_start, time_limit) = (
         args.inst_name, args.inst_reduced,
-        args.future_chunk_size, args.phase2_chunk_size, args.time_limit_phase1, args.time_limit_phase2, args.use_sgs_warm_start, args.time_limit
+        args.future_chunk_size, args.phase2_chunk_size, args.time_limit_phase1, args.time_limit_phase2, bool(args.use_sgs_warm_start), args.time_limit
     )
 
     if not inst_reduced:
