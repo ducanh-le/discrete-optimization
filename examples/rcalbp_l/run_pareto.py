@@ -292,6 +292,7 @@ def main_script():
 
 
 if __name__ == "__main__":
+    # parse arguments
     parser = argparse.ArgumentParser()
     parser.add_argument('inst_name', type=str, help='instance name without .json')
     parser.add_argument('inst_reduced', type=str, help='type of reduced instance (empty string / ws / t)')
@@ -307,7 +308,7 @@ if __name__ == "__main__":
         args.future_chunk_size, args.phase2_chunk_size, args.time_limit_phase1, args.time_limit_phase2, bool(args.use_sgs_warm_start), args.time_limit
     )
 
-
+    # compute instance path
     didactic = bool(ast.literal_eval(input('Do you want to run didactic instance ? (1 / 0) : ')))
     if didactic:
         inst_name = "6_2_6_12"
@@ -319,10 +320,10 @@ if __name__ == "__main__":
             inst_type = f'airplane-{inst_reduced}Reduced'
         inst_path = Path("..") / ".." / ".." / "these-ONERA" / "data" / "instances" / inst_type / f"{inst_name}.json"
 
-
+    # log setting
     log_path = (Path(".") / "res" / "log" /
                 f"{inst_name}_{future_chunk_size}_{phase2_chunk_size}_{time_limit_phase1}_{time_limit_phase2}_{use_sgs_warm_start}_{time_limit}.log")
-    # 1. Cấu hình Logging phân luồng qua stdout/stderr thay vì mở FileHandler riêng
+
     stdout_handler = logging.StreamHandler(sys.stdout)
     stdout_handler.setLevel(logging.INFO)
     stdout_formatter = logging.Formatter(
@@ -340,18 +341,8 @@ if __name__ == "__main__":
         force=True,
     )
     logger = logging.getLogger(__name__)
-    # file_handler = logging.FileHandler(log_path, mode="w", encoding="utf-8")
-    # file_handler.setLevel(logging.INFO)
-    # console_handler = logging.StreamHandler(sys.stderr)
-    # console_handler.setLevel(logging.ERROR)
-    # logging.basicConfig(
-    #     level=logging.INFO, handlers=[file_handler, console_handler], force=True
-    # )
-    # logger = logging.getLogger(__name__)
-    # logger.info(
-    #     f"### NEW RUN START ###"
-    # )
 
+    # run
     print(f"Running meta_solvers on {inst_path.name}")
     print("...")
     with open(log_path, "w", encoding="utf-8", buffering=1) as logfile:
