@@ -30,29 +30,20 @@ logging.basicConfig(level=logging.INFO)
 @contextmanager
 def redirect_stdout_all(target_file):
     """Chuyển hướng cả stdout của Python lẫn C/C++ extensions vào target_file."""
-    # Đẩy sạch dữ liệu đệm (buffer) trước khi chuyển hướng
     sys.stdout.flush()
-
-    # Lấy file descriptor gốc (FD 1) và FD của file đích
-    c_stdout_fd = 1  # Standard Output File Descriptor
+    c_stdout_fd = 1
     target_fd = target_file.fileno()
 
-    # Sao lưu lại File Descriptor 1 gốc để khôi phục sau này
     saved_fd = os.dup(c_stdout_fd)
-
-    # Chuyển hướng FD 1 sang file đích
     os.dup2(target_fd, c_stdout_fd)
-
-    # Đồng bộ cả sys.stdout của Python
     old_sys_stdout = sys.stdout
     sys.stdout = target_file
 
     try:
         yield
     finally:
-        # Xả sạch buffer trước khi trả lại trạng thái cũ
         sys.stdout.flush()
-        # Khôi phục lại luồng terminal gốc
+        target_file.flush()
         os.dup2(saved_fd, c_stdout_fd)
         os.close(saved_fd)
         sys.stdout = old_sys_stdout
@@ -331,21 +322,40 @@ if __name__ == "__main__":
 
     log_path = (Path(".") / "res" / "log" /
                 f"{inst_name}_{future_chunk_size}_{phase2_chunk_size}_{time_limit_phase1}_{time_limit_phase2}_{use_sgs_warm_start}_{time_limit}.log")
-    file_handler = logging.FileHandler(log_path, mode="w", encoding="utf-8")
-    file_handler.setLevel(logging.INFO)
-    console_handler = logging.StreamHandler(sys.stderr)
-    console_handler.setLevel(logging.ERROR)
+    # 1. Cấu hình Logging phân luồng qua stdout/stderr thay vì mở FileHandler riêng
+    stdout_handler = logging.StreamHandler(sys.stdout)
+    stdout_handler.setLevel(logging.INFO)
+    stdout_formatter = logging.Formatter(
+        "%(levelname)s:%(name)s:%(message)s"
+    )
+    stdout_handler.setFormatter(stdout_formatter)
+
+    console_error_handler = logging.StreamHandler(sys.stderr)
+    console_error_handler.setLevel(logging.ERROR)
+    console_error_handler.setFormatter(stdout_formatter)
+
     logging.basicConfig(
-        level=logging.INFO, handlers=[file_handler, console_handler], force=True
+        level=logging.INFO,
+        handlers=[stdout_handler, console_error_handler],
+        force=True,
     )
     logger = logging.getLogger(__name__)
-    logger.info(
-        f"### NEW RUN START ###"
-    )
+    # file_handler = logging.FileHandler(log_path, mode="w", encoding="utf-8")
+    # file_handler.setLevel(logging.INFO)
+    # console_handler = logging.StreamHandler(sys.stderr)
+    # console_handler.setLevel(logging.ERROR)
+    # logging.basicConfig(
+    #     level=logging.INFO, handlers=[file_handler, console_handler], force=True
+    # )
+    # logger = logging.getLogger(__name__)
+    # logger.info(
+    #     f"### NEW RUN START ###"
+    # )
 
     print(f"Running meta_solvers on {inst_path.name}")
     print("...")
-    with open(log_path, 'a') as logfile:
+    with open(log_path, "w", encoding="utf-8", buffering=1) as logfile:
         with redirect_stdout_all(logfile):
+            logger.info("### NEW RUN START ###")
             run_pareto(inst_path, future_chunk_size, phase2_chunk_size, time_limit_phase1, time_limit_phase2, use_sgs_warm_start, time_limit)
     print(f"Finished meta_solvers on {inst_path.name}")
