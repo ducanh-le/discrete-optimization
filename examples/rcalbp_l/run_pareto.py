@@ -316,6 +316,7 @@ if __name__ == "__main__":
         args.future_chunk_size, args.phase2_chunk_size, args.time_limit_phase1, args.time_limit_phase2, bool(args.use_sgs_warm_start), args.time_limit
     )
 
+
     didactic = bool(ast.literal_eval(input('Do you want to run didactic instance ? (1 / 0) : ')))
     if didactic:
         inst_name = "6_2_6_12"
@@ -327,12 +328,24 @@ if __name__ == "__main__":
             inst_type = f'airplane-{inst_reduced}Reduced'
         inst_path = Path("..") / ".." / ".." / "these-ONERA" / "data" / "instances" / inst_type / f"{inst_name}.json"
 
+
     log_path = (Path(".") / "res" / "log" /
                 f"{inst_name}_{future_chunk_size}_{phase2_chunk_size}_{time_limit_phase1}_{time_limit_phase2}_{use_sgs_warm_start}_{time_limit}.log")
+    file_handler = logging.FileHandler(log_path, mode="w", encoding="utf-8")
+    file_handler.setLevel(logging.INFO)
+    console_handler = logging.StreamHandler(sys.stderr)
+    console_handler.setLevel(logging.ERROR)
+    logging.basicConfig(
+        level=logging.INFO, handlers=[file_handler, console_handler], force=True
+    )
+    logger = logging.getLogger(__name__)
+    logger.info(
+        f"### NEW RUN START ###"
+    )
 
     print(f"Running meta_solvers on {inst_path.name}")
     print("...")
-    with open(log_path, 'w') as logfile:
+    with open(log_path, 'a') as logfile:
         with redirect_stdout_all(logfile):
             run_pareto(inst_path, future_chunk_size, phase2_chunk_size, time_limit_phase1, time_limit_phase2, use_sgs_warm_start, time_limit)
     print(f"Finished meta_solvers on {inst_path.name}")
