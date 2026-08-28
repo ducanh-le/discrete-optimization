@@ -1,0 +1,18 @@
+3
+1
+[2, 3, 4]
+[2, 3, 4]
+['skip', 'skip', 'change_cycle_time_forced']
+{'ramp_up_duration': 76, 'nb_adjustments': 1, 'violation_precedence': 0.0, 'violation_capacity': 0.0, 'violation_cycle_time': 0.0}
+[2, 3, 4]
+['change_cycle_time', 'skip', 'change_cycle_time_forced']
+['change_cycle_time', 'skip', 'change_cycle_time_forced']
+{'ramp_up_duration': 68, 'nb_adjustments': 2, 'violation_precedence': 0.0, 'violation_capacity': 0.0, 'violation_cycle_time': 0.0}
+[2, 3, 4]
+['change_cycle_time', 'change_cycle_time', 'change_cycle_time_forced']
+['change_cycle_time', 'change_cycle_time', 'change_cycle_time_forced']
+{'ramp_up_duration': 66, 'nb_adjustments': 3, 'violation_precedence': 0.0, 'violation_capacity': 0.0, 'violation_cycle_time': 0.0}
+  Obj: 77.0 | Sol: <discrete_optimization.alb.rcalbp_l.problem.RCALBPLSolution object at 0x7c05c3300830>
+  Obj: 70.0 | Sol: <discrete_optimization.alb.rcalbp_l.problem.RCALBPLSolution object at 0x7c05bfc1e180>
+  Obj: 69.0 | Sol: <discrete_optimization.alb.rcalbp_l.problem.RCALBPLSolution object at 0x7c05bf34cbc0>
+{'ramp_up_duration': 66, 'nb_adjustments': 3, 'violation_precedence': 0.0, 'violation_capacity': 0.0, 'violation_cycle_time': 0.0} True
