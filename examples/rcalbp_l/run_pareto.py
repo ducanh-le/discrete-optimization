@@ -283,16 +283,19 @@ if __name__ == "__main__":
         args.future_chunk_size, args.phase2_chunk_size, args.time_limit_phase1, args.time_limit_phase2, bool(args.use_sgs_warm_start), args.time_limit
     )
 
-    if not inst_reduced:
-        inst_type = 'airplane'
-    else:
-        inst_type = f'airplane-{inst_reduced}Reduced'
-    inst_folder_path = Path("..") / ".." / ".." / "these-ONERA" / "data" / "instances" / inst_type
     didactic = bool(ast.literal_eval(input('Do you want to run didactic instance ? (1 / 0) : ')))
-    inst_path = Path("..") / ".." / ".." / "these-ONERA" / "data" / "instances" / "didactic" / "6_2_6_12.json" if didactic else inst_folder_path / f"{inst_name}.json"
+    if didactic:
+        inst_name = "6_2_6_12"
+        inst_path = Path("..") / ".." / ".." / "these-ONERA" / "data" / "instances" / "didactic" / "6_2_6_12.json"
+    else:
+        if not inst_reduced:
+            inst_type = 'airplane'
+        else:
+            inst_type = f'airplane-{inst_reduced}Reduced'
+        inst_path = Path("..") / ".." / ".." / "these-ONERA" / "data" / "instances" / inst_type / f"{inst_name}.json"
 
     log_path = (Path(".") / "res" / "log" /
-                f"{inst_name}_{future_chunk_size}_{phase2_chunk_size}_{time_limit_phase1}_{time_limit_phase2}_{use_sgs_warm_start}_{time_limit}.png")
+                f"{inst_name}_{future_chunk_size}_{phase2_chunk_size}_{time_limit_phase1}_{time_limit_phase2}_{use_sgs_warm_start}_{time_limit}.log")
 
     print(f"Running meta_solvers on {inst_path.name}")
     print("...")
