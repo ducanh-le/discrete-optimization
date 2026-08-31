@@ -14,10 +14,24 @@ from discrete_optimization.generic_tools.result_storage.result_storage import (
 
 logger = logging.getLogger(__name__)
 
+#: A layout locked by phase 1 and imposed on phase 2: (task -> station, (resource, station) -> capacity).
+Layout = tuple[dict[Any, Any], dict[Any, Any]]
+
+NOGOOD_SCOPE_LAYOUT = "layout"
+NOGOOD_SCOPE_ALLOCATION = "allocation"
+
 
 class BackwardSequentialRCALBPLSolver(SolverDO):
     """
     Independent Chunk Backward Reasoning Solver with SGS Warm-Starting.
+
+    Phase 1 optimizes a future window and phase 2 replays the resulting layout
+    backwards on the earlier periods. Phase 1 is blind to the ramp-up periods,
+    so among its (often many) equally-optimal layouts some cannot be extended
+    backwards at all and phase 2 turns out infeasible. Which one is returned is
+    not reproducible: CP-SAT is non-deterministic as soon as it runs with
+    several workers. When that happens the offending layout is excluded with a
+    no-good cut and phase 1 is re-run, up to ``max_phase1_retries`` times.
     """
 
     problem: RCALBPLProblem
@@ -30,14 +44,37 @@ class BackwardSequentialRCALBPLSolver(SolverDO):
         time_limit_phase1: int = 120,
         time_limit_phase2: int = 30,
         use_sgs_warm_start: bool = True,
+        max_phase1_retries: int = 3,
+        nogood_scope: str = NOGOOD_SCOPE_LAYOUT,
         **kwargs: Any,
     ):
+        """
+        Args:
+            max_phase1_retries: how many extra phase 1 solves are allowed after a
+                phase 2 infeasibility. 0 restores the previous fail-fast behaviour.
+            nogood_scope: what a no-good cut forbids.
+                ``"layout"`` (default) forbids the exact (allocation, resource
+                dispatch) pair, so no extendable layout is ever lost, but two
+                attempts may differ only by an irrelevant resource dispatch.
+                ``"allocation"`` forbids the task-to-station assignment as a
+                whole: it converges much faster but may discard an assignment
+                that would have worked with another resource dispatch.
+        """
         super().__init__(problem=problem, **kwargs)
         self.future_chunk_size = future_chunk_size
         self.phase2_chunk_size = phase2_chunk_size
         self.time_limit_phase1 = time_limit_phase1
         self.time_limit_phase2 = time_limit_phase2
         self.use_sgs_warm_start = use_sgs_warm_start
+        self.max_phase1_retries = max_phase1_retries
+        if nogood_scope not in (NOGOOD_SCOPE_LAYOUT, NOGOOD_SCOPE_ALLOCATION):
+            raise ValueError(
+                f"nogood_scope must be '{NOGOOD_SCOPE_LAYOUT}' or "
+                f"'{NOGOOD_SCOPE_ALLOCATION}', got {nogood_scope!r}."
+            )
+        self.nogood_scope = nogood_scope
+        #: set by :meth:`_run_phase_2`, False when a chunk could not be solved.
+        self.last_phase2_complete = True
 
     def _build_subproblem(self, p_start: int, p_end: int) -> RCALBPLProblem:
         return RCALBPLProblem(
@@ -80,7 +117,66 @@ class BackwardSequentialRCALBPLSolver(SolverDO):
         sub_prob = self._build_subproblem(p_start=target_p_start, p_end=target_p_end)
         return RCALBPLSolution(sub_prob, wks, raw, start, cyc)
 
-    def _run_phase_1(self, **kwargs: Any) -> Optional[RCALBPLSolution]:
+    @staticmethod
+    def _layout_signature(layout: Layout) -> str:
+        """Compact human-readable id of a layout, for logging only."""
+        wks, raw = layout
+        stations = "".join(f"{wks[t]}," for t in sorted(wks))
+        dispatch = "".join(f"{raw[k]}," for k in sorted(raw))
+        return f"wks=[{stations.rstrip(',')}] raw=[{dispatch.rstrip(',')}]"
+
+    def _forbid_layouts(
+        self, solver: CpSatRCALBPLSolver, forbidden_layouts: list[Layout]
+    ) -> None:
+        """Post one no-good cut per layout already known to break phase 2.
+
+        A cut states that at least one component of the layout must differ from
+        the forbidden one, which is enough to force phase 1 onto a genuinely
+        different layout on the next solve.
+        """
+        if not forbidden_layouts:
+            return
+        cp_model = solver.cp_model
+        allocations = solver.variables["allocations"]
+        dispatch = solver.variables.get("resource_dispatch", {})
+        # Allocations are constrained equal across periods, so pinning the first
+        # period of this sub-model is enough to characterize the assignment.
+        ref_period = solver.problem.periods[0]
+
+        for idx, (wks, raw) in enumerate(forbidden_layouts):
+            literals = []
+            for t, w in wks.items():
+                key = (t, ref_period, w)
+                if key not in allocations:
+                    logger.warning(
+                        f"Cannot post no-good #{idx}: no allocation variable for {key}."
+                    )
+                    literals = []
+                    break
+                literals.append(allocations[key])
+            if not literals:
+                continue
+
+            if self.nogood_scope == NOGOOD_SCOPE_LAYOUT:
+                for (r, w), value in raw.items():
+                    if (r, w) not in dispatch:
+                        continue
+                    is_same = cp_model.NewBoolVar(name=f"nogood_{idx}_raw_{r}_{w}")
+                    cp_model.add(dispatch[(r, w)] == value).only_enforce_if(is_same)
+                    cp_model.add(dispatch[(r, w)] != value).only_enforce_if(~is_same)
+                    literals.append(is_same)
+
+            # At least one of the pinned components must take another value.
+            cp_model.add(sum(literals) <= len(literals) - 1)
+
+        logger.info(
+            f"Phase 1: {len(forbidden_layouts)} no-good cut(s) active "
+            f"(scope={self.nogood_scope})."
+        )
+
+    def _run_phase_1(
+        self, forbidden_layouts: Optional[list[Layout]] = None, **kwargs: Any
+    ) -> Optional[RCALBPLSolution]:
         """Original Phase 1: Solves a contiguous future chunk."""
         p_end = self.problem.nb_periods
         current_p_start = max(
@@ -95,6 +191,7 @@ class BackwardSequentialRCALBPLSolver(SolverDO):
         future_solver.init_model(
             minimize_used_cycle_time=True, add_heuristic_constraint=False
         )
+        self._forbid_layouts(future_solver, forbidden_layouts or [])
 
         res = future_solver.solve(time_limit=self.time_limit_phase1, **kwargs)
         if len(res) == 0:
@@ -117,7 +214,7 @@ class BackwardSequentialRCALBPLSolver(SolverDO):
 
         while current_p_end > 0:
             current_p_start = max(0, current_p_end - self.phase2_chunk_size)
-            print(current_p_start)
+            logger.debug(f"Phase 2: next chunk starts at period {current_p_start}")
             if current_p_start < self.problem.nb_stations:
                 current_p_start = 0
 
@@ -149,9 +246,11 @@ class BackwardSequentialRCALBPLSolver(SolverDO):
 
             if len(res2) == 0:
                 logger.error(
-                    f"Phase 2 failed at chunk [{current_p_start}, {current_p_end})."
+                    f"Phase 2 failed at chunk [{current_p_start}, {current_p_end}). "
+                    "The layout locked by phase 1 cannot be extended backwards."
                 )
-                break
+                self.last_phase2_complete = False
+                return self.create_result_storage([])
 
             latest_chunk_sol = res2[-1][0]
             merged_start.update(latest_chunk_sol.start)
@@ -169,11 +268,52 @@ class BackwardSequentialRCALBPLSolver(SolverDO):
             [(final_sol, self.aggreg_from_sol(final_sol))]
         )
 
+    def _phase2_start_period(self, phase1_sol: RCALBPLSolution) -> Optional[int]:
+        """Period phase 2 starts rolling backwards from (None: derive from phase1_sol)."""
+        return None
+
     def solve(self, **kwargs: Any) -> ResultStorage:
-        phase1_sol = self._run_phase_1(**kwargs)
-        if phase1_sol is None:
-            return self.create_result_storage([])
-        return self._run_phase_2(phase1_sol, **kwargs)
+        forbidden_layouts: list[Layout] = []
+
+        for attempt in range(self.max_phase1_retries + 1):
+            if attempt > 0:
+                logger.info(
+                    f"Retrying phase 1 ({attempt}/{self.max_phase1_retries}) "
+                    "with the failed layout(s) cut off."
+                )
+            phase1_sol = self._run_phase_1(
+                forbidden_layouts=forbidden_layouts, **kwargs
+            )
+            if phase1_sol is None:
+                if forbidden_layouts:
+                    logger.error(
+                        "Phase 1 has no layout left once the failed one(s) are cut off. "
+                        "Consider enlarging future_chunk_size so phase 1 sees the "
+                        "ramp-up periods."
+                    )
+                return self.create_result_storage([])
+
+            layout = (dict(phase1_sol.wks), dict(phase1_sol.raw))
+            self.last_phase2_complete = True
+            res = self._run_phase_2(
+                phase1_sol,
+                current_p_end=self._phase2_start_period(phase1_sol),
+                **kwargs,
+            )
+            if self.last_phase2_complete:
+                return res
+
+            logger.warning(
+                f"Rejecting phase 1 layout ({self._layout_signature(layout)}); "
+                "adding a no-good cut."
+            )
+            forbidden_layouts.append(layout)
+
+        logger.error(
+            f"Giving up: phase 2 stayed infeasible after "
+            f"{self.max_phase1_retries + 1} phase 1 layout(s)."
+        )
+        return self.create_result_storage([])
 
 
 class BackwardSequentialRCALBPLSolverSGS(BackwardSequentialRCALBPLSolver):
@@ -182,23 +322,6 @@ class BackwardSequentialRCALBPLSolverSGS(BackwardSequentialRCALBPLSolver):
     """
 
     problem: RCALBPLProblem
-
-    def __init__(
-        self,
-        problem: RCALBPLProblem,
-        future_chunk_size: int = 5,
-        phase2_chunk_size: int = 10,
-        time_limit_phase1: int = 120,
-        time_limit_phase2: int = 30,
-        use_sgs_warm_start: bool = True,
-        **kwargs: Any,
-    ):
-        super().__init__(problem=problem, **kwargs)
-        self.future_chunk_size = future_chunk_size
-        self.phase2_chunk_size = phase2_chunk_size
-        self.time_limit_phase1 = time_limit_phase1
-        self.time_limit_phase2 = time_limit_phase2
-        self.use_sgs_warm_start = use_sgs_warm_start
 
     def _run_phase_2(
         self, phase1_sol: RCALBPLSolution, current_p_end: int = None, **kwargs: Any
@@ -223,7 +346,9 @@ class BalancedBackwardSequentialRCALBPLSolver(BackwardSequentialRCALBPLSolver):
     Phase 1 isolates ONLY the first unstable period and the final steady-state period.
     """
 
-    def _run_phase_1(self, **kwargs: Any) -> Optional[RCALBPLSolution]:
+    def _run_phase_1(
+        self, forbidden_layouts: Optional[list[Layout]] = None, **kwargs: Any
+    ) -> Optional[RCALBPLSolution]:
         p_first = max(0, self.problem.nb_stations - 1)
         p_last = self.problem.nb_periods - 1
         logger.info(
@@ -235,6 +360,7 @@ class BalancedBackwardSequentialRCALBPLSolver(BackwardSequentialRCALBPLSolver):
         phase1_solver.init_model(
             minimize_used_cycle_time=True, add_heuristic_constraint=False
         )
+        self._forbid_layouts(phase1_solver, forbidden_layouts or [])
         res = phase1_solver.solve(time_limit=self.time_limit_phase1, **kwargs)
         if len(res) == 0:
             logger.error("Phase 1 failed. Aborting.")
@@ -246,10 +372,5 @@ class BalancedBackwardSequentialRCALBPLSolver(BackwardSequentialRCALBPLSolver):
         logger.info(f"Balanced layout locked! Final Cyc: {sol.cyc.get(p_last, 'N/A')}")
         return sol
 
-    def solve(self, **kwargs: Any) -> ResultStorage:
-        phase1_sol = self._run_phase_1(**kwargs)
-        if phase1_sol is None:
-            return self.create_result_storage([])
-        return self._run_phase_2(
-            phase1_sol, current_p_end=self.problem.nb_periods - 1, **kwargs
-        )
+    def _phase2_start_period(self, phase1_sol: RCALBPLSolution) -> Optional[int]:
+        return self.problem.nb_periods - 1
