@@ -44,7 +44,7 @@ class BackwardSequentialRCALBPLSolver(SolverDO):
         time_limit_phase1: int = 120,
         time_limit_phase2: int = 30,
         use_sgs_warm_start: bool = True,
-        max_phase1_retries: int = 3,
+        max_phase1_retries: int = 100,
         nogood_scope: str = NOGOOD_SCOPE_LAYOUT,
         **kwargs: Any,
     ):
